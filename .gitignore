@@ -6,3 +6,6 @@ build/
 .vscode/
 .idea/
 *~
+fuzz/fuzz_pqwire
+fuzz/corpus/
+fuzz/*.log
