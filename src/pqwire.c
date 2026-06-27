@@ -25,7 +25,10 @@ typedef enum {
     PROTO_STATE_ERROR
 } protocol_state_t;
 
+#define PQWIRE_MAGIC 0xABCD1234
+
 struct pqwire_ctx {
+    uint32_t magic;              /* Use-after-destroy protection */
     pqwire_role_t role;
     int event_queue_size;
     size_t max_message_size;
@@ -52,7 +55,11 @@ struct pqwire_ctx {
 };
 
 static void enqueue_event(pqwire_ctx_t *ctx, const protocol_event_t *ev) {
-    if (ctx->event_count >= ctx->event_queue_size) return;
+    if (ctx->event_count >= ctx->event_queue_size) {
+        /* Queue full - drop oldest event (robust backpressure handling) */
+        ctx->event_head = (ctx->event_head + 1) % ctx->event_queue_size;
+        ctx->event_count--;
+    }
     ctx->events[ctx->event_tail] = *ev;
     ctx->event_tail = (ctx->event_tail + 1) % ctx->event_queue_size;
     ctx->event_count++;
@@ -104,12 +111,15 @@ pqwire_ctx_t *pqwire_create_with_config(pqwire_role_t role, const pqwire_config_
     ctx->max_message_size = config->max_message_size ? config->max_message_size : (16 * 1024 * 1024);
     ctx->auth_state = AUTH_STATE_NONE;
     ctx->proto_state = PROTO_STATE_STARTUP;
+    ctx->magic = PQWIRE_MAGIC;
 
     return ctx;
 }
 
 void pqwire_destroy(pqwire_ctx_t *ctx) {
     if (!ctx) return;
+    if (ctx->magic != PQWIRE_MAGIC) return; /* Double destroy or corrupted */
+    ctx->magic = 0; /* Invalidate */
     free(ctx->events);
     free(ctx->output_buf);
     free(ctx->input_buf);
@@ -117,7 +127,7 @@ void pqwire_destroy(pqwire_ctx_t *ctx) {
 }
 
 void pqwire_reset(pqwire_ctx_t *ctx) {
-    if (!ctx) return;
+    if (!ctx || ctx->magic != PQWIRE_MAGIC) return;
     ctx->event_head = ctx->event_tail = ctx->event_count = 0;
     ctx->output_len = 0;
     ctx->input_len = 0;
@@ -150,7 +160,7 @@ int pqwire_start_auth(pqwire_ctx_t *ctx) {
 
 /* Stub for feed_input that triggers auth when password is set */
 size_t pqwire_feed_input(pqwire_ctx_t *ctx, const uint8_t *data, size_t len) {
-    if (!ctx || !data) return 0;
+    if (!ctx || ctx->magic != PQWIRE_MAGIC || !data) return 0;
 
     if (ctx->input_len + len > ctx->input_cap) {
         ctx->input_cap = ctx->input_len + len + 1024;
@@ -201,7 +211,7 @@ size_t pqwire_get_output(pqwire_ctx_t *ctx, uint8_t *buf, size_t max_len) {
 }
 
 int pqwire_next_event(pqwire_ctx_t *ctx, protocol_event_t *event) {
-    if (!ctx || !event) return 0;
+    if (!ctx || ctx->magic != PQWIRE_MAGIC || !event) return 0;
     return dequeue_event(ctx, event);
 }
 

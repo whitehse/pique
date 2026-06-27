@@ -13,5 +13,6 @@ This directory contains layered documentation for humans and coding agents.
   - 008-c-only-examples-and-codebase.md — Strict C11 requirement (no C++).
   - 009-consistent-protocol-interfaces.md — Unified event-driven interface pattern.
   - 010-c-interfaces-and-language-bindings.md — Opaque types + FFI-friendly design principles.
+  - 011-nefarious-mitm-adversarial-testing.md — Nefarious Man-in-the-Middle adversarial testing harness.
 
 See also root-level AGENTS.md and ARCHITECTURE.md for entry points and codemap.

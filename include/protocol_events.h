@@ -19,6 +19,25 @@ typedef enum {
     PQ_EVENT_COMMAND_COMPLETE,  /* Server -> Client */
     PQ_EVENT_ERROR,             /* Either direction */
     PQ_EVENT_PROTOCOL_ERROR,    /* Protocol violation detected */
+    PQ_EVENT_ERROR_RESPONSE,    /* Server ErrorResponse */
+    PQ_EVENT_NOTICE_RESPONSE,   /* Server NoticeResponse */
+
+    /* Extended Query Protocol responses */
+    PQ_EVENT_PARSE_COMPLETE,
+    PQ_EVENT_BIND_COMPLETE,
+    PQ_EVENT_NO_DATA,
+    PQ_EVENT_PORTAL_SUSPENDED,
+    PQ_EVENT_CLOSE_COMPLETE,
+    PQ_EVENT_PARAMETER_STATUS,   /* Server ParameterStatus */
+    PQ_EVENT_NOTIFICATION,       /* NotificationResponse (LISTEN/NOTIFY) */
+
+    /* COPY protocol */
+    PQ_EVENT_COPY_IN_RESPONSE,
+    PQ_EVENT_COPY_OUT_RESPONSE,
+    PQ_EVENT_COPY_BOTH_RESPONSE,
+    PQ_EVENT_COPY_DATA,
+    PQ_EVENT_COPY_DONE,
+    PQ_EVENT_COPY_FAIL,
 
     PQ_EVENT_MAX
 } protocol_event_type_t;
@@ -41,13 +60,29 @@ typedef struct {
     size_t         n_columns;
 } pq_data_row_t;
 
+/* Rich Error / Notice structure */
+typedef struct {
+    char severity[32];      /* 'S' field */
+    char code[8];           /* 'C' field (SQLSTATE) */
+    char message[256];      /* 'M' field */
+    char detail[256];       /* 'D' field */
+    char hint[256];         /* 'H' field */
+    int  position;          /* 'P' field */
+} pq_error_t;
+
+/* NotificationResponse payload */
+typedef struct {
+    int32_t pid;
+    char    channel[64];
+    char    payload[256];
+} pq_notification_t;
+
 typedef struct {
     protocol_event_type_t type;
     union {
         struct {
             const char *user;
             const char *database;
-            /* parameters would go here in full impl */
         } startup;
 
         struct {
@@ -62,12 +97,17 @@ typedef struct {
         pq_data_row_t data_row;
 
         struct {
-            const char *tag; /* e.g. "SELECT 1" or "INSERT 0 1" */
+            const char *tag;
         } command_complete;
 
+        pq_error_t error;
+        pq_notification_t notification;
+
+        /* Generic payload for CopyData, ParameterStatus, etc. */
         struct {
-            const char *message;
-        } error;
+            const uint8_t *data;
+            size_t len;
+        } raw;
     } payload;
 } protocol_event_t;
 
