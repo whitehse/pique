@@ -14,5 +14,6 @@ This directory contains layered documentation for humans and coding agents.
   - 009-consistent-protocol-interfaces.md — Unified event-driven interface pattern.
   - 010-c-interfaces-and-language-bindings.md — Opaque types + FFI-friendly design principles.
   - 011-nefarious-mitm-adversarial-testing.md — Nefarious Man-in-the-Middle adversarial testing harness.
+  - 012-extended-event-loop-and-real-time-compatibility.md — Extended compatibility for ESP-IDF, coroutines, and real-time/RTOS environments (extends ADR 002).
 
 See also root-level AGENTS.md and ARCHITECTURE.md for entry points and codemap.

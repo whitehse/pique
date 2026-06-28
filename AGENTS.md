@@ -1,6 +1,6 @@
 # AGENTS.md — libpqwire
 
-**Project identity**: Pure C state-machine PostgreSQL wire protocol library. System-call free, callback free. All I/O, networking, and event handling lives exclusively in the calling application (typically an io_uring, libuv or libev event loop). The library only consumes/produces byte buffers and explicit state transitions. Supports binary format for row data including PostGIS types.
+**Project identity**: Pure C state-machine PostgreSQL wire protocol library. System-call free, callback free. All I/O, networking, and event handling lives exclusively in the calling application (typically an io_uring, libuv, libev, epoll, ESP-IDF, coroutine, or real-time/RTOS event loop per ADR 002 and ADR 012). The library only consumes/produces byte buffers and explicit state transitions. Supports binary format for row data including PostGIS types.
 
 **Key commands** (run from repo root):
 - `cmake -B build -S . && cmake --build build` — configure and build the static library + tests

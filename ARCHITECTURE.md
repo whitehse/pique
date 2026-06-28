@@ -2,7 +2,7 @@
 
 ## Core Principle
 
-This is a **pure state machine** implementation of the PostgreSQL wire protocol (frontend/backend messaging), with support for binary data transfer including PostGIS geospatial types. No function pointers for callbacks, no direct system calls, no hidden allocations beyond what's explicitly requested via config. The design follows the "plumbing" philosophy (ADR 006): the library is a thin PDU parser/serializer that emits structured events and unencapsulated data; the calling application owns all policy, decisions, and side effects. Data is passed via memory buffers; the library has no knowledge of io_uring, libuv, libev, or any event loop.
+This is a **pure state machine** implementation of the PostgreSQL wire protocol (frontend/backend messaging), with support for binary data transfer including PostGIS geospatial types. No function pointers for callbacks, no direct system calls, no hidden allocations beyond what's explicitly requested via config. The design follows the "plumbing" philosophy (ADR 006): the library is a thin PDU parser/serializer that emits structured events and unencapsulated data; the calling application owns all policy, decisions, and side effects. Data is passed via memory buffers; the library has no knowledge of io_uring, libuv, libev, epoll, ESP-IDF, coroutines, RTOS, or any event loop (see ADR 002 and ADR 012).
 
 ## Module Boundaries
 
