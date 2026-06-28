@@ -7,5 +7,6 @@ build/
 .idea/
 *~
 fuzz/fuzz_pqwire
+fuzz/fuzz_mitm
 fuzz/corpus/
 fuzz/*.log
