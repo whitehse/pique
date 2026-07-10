@@ -216,8 +216,8 @@ int scram_sha256_process_server_first(scram_sha256_ctx_t *ctx,
 
 int scram_sha256_client_final(const scram_sha256_ctx_t *ctx, char *out, size_t outlen) {
     char client_final[256];
-    int len = snprintf(client_final, sizeof(client_final),
-                       "c=biws,r=%s%s", ctx->server_nonce, ctx->client_nonce); /* simplified */
+    (void)snprintf(client_final, sizeof(client_final),
+                   "c=biws,r=%s%s", ctx->server_nonce, ctx->client_nonce); /* simplified */
     /* Real implementation builds proper client-final-message */
     strncpy(out, client_final, outlen);
     return 0;

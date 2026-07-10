@@ -11,7 +11,7 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
-add_library(pqwire STATIC src/pqwire.c)
+add_library(pqwire STATIC src/pqwire.c src/scram.c)
 
 target_include_directories(pqwire PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
