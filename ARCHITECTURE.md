@@ -62,6 +62,12 @@ Each module maintains explicit states for frontend/backend messaging (Startup, A
 - For binary rows: provides access to raw binary data per column, with OID information so caller (or extensions) can decode, including PostGIS geometry (typically OID 17001 or registered).
 - No embedded PostGIS library; raw binary + type metadata emitted for application to process (e.g., via WKB parsing or PostGIS).
 
+## Application consumers
+
+- **`~/apps/pqproxy`** — L7 mTLS identity proxy (design: `~/new_design2.txt`). Uses dual
+  contexts (frontend `SERVER` + backend `CLIENT`), `pqwire_bind_inject_identity`, and
+  unnamed extended-query pipelines. The library never performs TLS or pooling.
+
 ## Future Growth
 
 - Full message coverage, error handling, prepared statements, COPY protocol, notifications.

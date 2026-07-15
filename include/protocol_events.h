@@ -22,7 +22,17 @@ typedef enum {
     PQ_EVENT_ERROR_RESPONSE,    /* Server ErrorResponse */
     PQ_EVENT_NOTICE_RESPONSE,   /* Server NoticeResponse */
 
-    /* Extended Query Protocol responses */
+    /* Extended Query Protocol — frontend (client → server) */
+    PQ_EVENT_PARSE,             /* Parse ('P') */
+    PQ_EVENT_BIND,              /* Bind ('B') */
+    PQ_EVENT_DESCRIBE,          /* Describe ('D') */
+    PQ_EVENT_EXECUTE,           /* Execute ('E') */
+    PQ_EVENT_CLOSE,             /* Close ('C') */
+    PQ_EVENT_SYNC,              /* Sync ('S') */
+    PQ_EVENT_FLUSH,             /* Flush ('H') */
+    PQ_EVENT_TERMINATE,         /* Terminate ('X') */
+
+    /* Extended Query Protocol — backend responses */
     PQ_EVENT_PARSE_COMPLETE,
     PQ_EVENT_BIND_COMPLETE,
     PQ_EVENT_NO_DATA,
@@ -77,6 +87,65 @@ typedef struct {
     char    payload[256];
 } pq_notification_t;
 
+/* Limits for extended-query event payloads (caller may retain copies) */
+#define PQWIRE_MAX_STMT_NAME   64
+#define PQWIRE_MAX_PORTAL_NAME 64
+#define PQWIRE_MAX_QUERY_LEN   4096
+#define PQWIRE_MAX_BIND_PARAMS 32
+#define PQWIRE_MAX_PARAM_TYPES 16
+
+/** Parse ('P') payload — statement name, query string, param type OIDs. */
+typedef struct {
+    char     statement[PQWIRE_MAX_STMT_NAME];
+    char     query[PQWIRE_MAX_QUERY_LEN];
+    uint16_t n_param_types;
+    uint32_t param_type_oids[PQWIRE_MAX_PARAM_TYPES];
+} pq_parse_t;
+
+/** Single Bind parameter view (points into input buffer lifetime of event). */
+typedef struct {
+    int32_t        length;   /* -1 = NULL */
+    const uint8_t *data;     /* NULL if length < 0 */
+    int16_t        format;   /* 0 = text, 1 = binary (from formats array) */
+} pq_bind_param_view_t;
+
+/**
+ * Bind ('B') payload — portal/statement names and parameter matrix.
+ * Parameter data pointers are valid only until the next feed_input that
+ * overwrites the context input buffer; copy immediately if caching.
+ */
+typedef struct {
+    char     portal[PQWIRE_MAX_PORTAL_NAME];
+    char     statement[PQWIRE_MAX_STMT_NAME];
+    uint16_t n_formats;
+    int16_t  formats[PQWIRE_MAX_BIND_PARAMS];
+    uint16_t n_params;
+    pq_bind_param_view_t params[PQWIRE_MAX_BIND_PARAMS];
+    uint16_t n_result_formats;
+    int16_t  result_formats[PQWIRE_MAX_BIND_PARAMS];
+    /* Raw Bind body after names (for zero-copy rewrite / forward). */
+    const uint8_t *raw_body;
+    size_t         raw_body_len;
+} pq_bind_t;
+
+/** Describe ('D') — type 'S' statement or 'P' portal. */
+typedef struct {
+    char target;  /* 'S' or 'P' */
+    char name[PQWIRE_MAX_STMT_NAME];
+} pq_describe_t;
+
+/** Execute ('E') */
+typedef struct {
+    char     portal[PQWIRE_MAX_PORTAL_NAME];
+    uint32_t max_rows;
+} pq_execute_t;
+
+/** Close ('C') */
+typedef struct {
+    char target;  /* 'S' or 'P' */
+    char name[PQWIRE_MAX_STMT_NAME];
+} pq_close_t;
+
 typedef struct {
     protocol_event_type_t type;
     union {
@@ -103,7 +172,13 @@ typedef struct {
         pq_error_t error;
         pq_notification_t notification;
 
-        /* Generic payload for CopyData, ParameterStatus, etc. */
+        pq_parse_t    parse;
+        pq_bind_t     bind;
+        pq_describe_t describe;
+        pq_execute_t  execute;
+        pq_close_t    close_msg;
+
+        /* Generic payload for CopyData, ParameterStatus, raw frames, etc. */
         struct {
             const uint8_t *data;
             size_t len;
