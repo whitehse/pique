@@ -1643,6 +1643,136 @@ int pqwire_send_bind_params(pqwire_ctx_t *ctx, const char *portal, const char *s
                             result_formats, n_result_formats);
 }
 
+int pqwire_bind_rewrite_identity_zerocopy(const pq_bind_t *bind,
+                                          const char *portal, const char *statement,
+                                          uint16_t slot, const char *identity,
+                                          int as_binary,
+                                          uint8_t *out, size_t out_cap, size_t *out_len)
+{
+    size_t p = 0;
+    size_t plen_ident;
+    uint16_t i;
+    uint16_t n_fmt;
+    int16_t formats[PQWIRE_MAX_BIND_PARAMS];
+
+    if (!bind || !identity || !out || !out_len) {
+        return -1;
+    }
+    if (bind->n_params == 0 || slot >= bind->n_params) {
+        return -1;
+    }
+    if (!portal) {
+        portal = "";
+    }
+    if (!statement) {
+        statement = "";
+    }
+    plen_ident = strlen(identity);
+
+    /* Estimate: type(1)+len(4)+names+formats+params+result formats */
+    {
+        size_t need = 5 + strlen(portal) + 1 + strlen(statement) + 1 +
+                      2 + (size_t)bind->n_params * 2 +
+                      2 + (size_t)bind->n_params * (4 + 64) +
+                      2 + (size_t)bind->n_result_formats * 2 + plen_ident + 64;
+        if (need > out_cap) {
+            /* still try exact build */
+        }
+    }
+
+#define PUT_BYTES(src, n) do { \
+    if (p + (n) > out_cap) return -1; \
+    if ((n) > 0) memcpy(out + p, (src), (n)); \
+    p += (n); \
+} while (0)
+#define PUT_U16(v) do { \
+    if (p + 2 > out_cap) return -1; \
+    wr16_be(out + p, (uint16_t)(v)); \
+    p += 2; \
+} while (0)
+#define PUT_U32(v) do { \
+    if (p + 4 > out_cap) return -1; \
+    wr32_be(out + p, (uint32_t)(v)); \
+    p += 4; \
+} while (0)
+
+    /* Leave room for 'B' + int32 len; fill later */
+    if (p + 5 > out_cap) {
+        return -1;
+    }
+    p = 5;
+
+    PUT_BYTES(portal, strlen(portal) + 1);
+    PUT_BYTES(statement, strlen(statement) + 1);
+
+    /* Per-param formats: prefer one format per param; force identity to text/bin */
+    n_fmt = bind->n_params;
+    for (i = 0; i < n_fmt; i++) {
+        if (i == slot) {
+            formats[i] = as_binary ? 1 : 0;
+        } else if (bind->n_formats == 0) {
+            formats[i] = 0;
+        } else if (bind->n_formats == 1) {
+            formats[i] = bind->formats[0];
+        } else {
+            formats[i] = (i < bind->n_formats) ? bind->formats[i] : 0;
+        }
+    }
+    PUT_U16(n_fmt);
+    for (i = 0; i < n_fmt; i++) {
+        PUT_U16((uint16_t)formats[i]);
+    }
+
+    PUT_U16(bind->n_params);
+    for (i = 0; i < bind->n_params; i++) {
+        if (i == slot) {
+            PUT_U32((uint32_t)plen_ident);
+            PUT_BYTES(identity, plen_ident);
+        } else {
+            const pq_bind_param_view_t *v = &bind->params[i];
+            if (v->length < 0) {
+                PUT_U32(0xFFFFFFFFu); /* -1 NULL */
+            } else {
+                PUT_U32((uint32_t)v->length);
+                PUT_BYTES(v->data, (size_t)v->length);
+            }
+        }
+    }
+
+    PUT_U16(bind->n_result_formats);
+    for (i = 0; i < bind->n_result_formats; i++) {
+        PUT_U16((uint16_t)bind->result_formats[i]);
+    }
+
+    /* Header */
+    out[0] = (uint8_t)'B';
+    wr32_be(out + 1, (uint32_t)(p - 1)); /* length includes itself, excludes type */
+    *out_len = p;
+#undef PUT_BYTES
+#undef PUT_U16
+#undef PUT_U32
+    return 0;
+}
+
+int pqwire_send_bind_rewrite_identity(pqwire_ctx_t *ctx, const pq_bind_t *bind,
+                                      const char *portal, const char *statement,
+                                      uint16_t slot, const char *identity,
+                                      int as_binary)
+{
+    uint8_t buf[8192];
+    size_t n = 0;
+    if (!ctx || ctx->magic != PQWIRE_MAGIC) {
+        return -1;
+    }
+    if (pqwire_bind_rewrite_identity_zerocopy(bind, portal, statement, slot,
+                                              identity, as_binary,
+                                              buf, sizeof(buf), &n) != 0) {
+        return -1;
+    }
+    append_output(ctx, buf, n);
+    return 0;
+}
+
 int pqwire_prepared_from_parse(const pq_parse_t *parse, pqwire_prepared_stmt_t *out)
 {
     if (!parse || !out) {

@@ -9,7 +9,7 @@
 - [x] `pqwire_prepared_stmt_t` caller-owned statement cache shape
 - [x] Server send helpers used by dialectic tests (auth_ok, RFQ, row desc, data row, command complete)
 - [ ] Per-connection statement/portal name tables inside library (optional; proxy may keep its own)
-- [ ] Zero-copy Bind rewrite without full re-serialize (slice-based output)
+- [x] Zero-copy Bind rewrite without full re-serialize (slice-based output)
 - [ ] COPY protocol full duplex for bulk paths
 - [ ] Dialectic test: Parse intercept → ParseComplete local → Bind inject → unnamed pipeline
 - [x] ErrorResponse mid-pipeline recovery helpers (`pqwire_pipeline_status_t`, observe/feed, note_ready)

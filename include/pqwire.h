@@ -137,6 +137,28 @@ int pqwire_bind_inject_identity(const pq_bind_t *bind, pqwire_param_t *out_param
                                 uint16_t slot, const char *identity, int as_binary);
 
 /**
+ * Slice-based Bind rewrite: build a complete Bind message ('B' + len + body)
+ * into out[] without malloc of non-identity parameters. Non-identity param
+ * bytes are copied from bind->params views; only the identity slot is
+ * replaced. Portal/statement names can be forced (e.g. "" for unnamed pipeline).
+ *
+ * @return 0 on success with *out_len set; -1 on error / capacity.
+ */
+int pqwire_bind_rewrite_identity_zerocopy(const pq_bind_t *bind,
+                                          const char *portal, const char *statement,
+                                          uint16_t slot, const char *identity,
+                                          int as_binary,
+                                          uint8_t *out, size_t out_cap, size_t *out_len);
+
+/**
+ * Emit rewritten Bind (and only Bind) on ctx output using zerocopy builder.
+ */
+int pqwire_send_bind_rewrite_identity(pqwire_ctx_t *ctx, const pq_bind_t *bind,
+                                      const char *portal, const char *statement,
+                                      uint16_t slot, const char *identity,
+                                      int as_binary);
+
+/**
  * Emit a Bind using owned parameters (portal/statement from caller).
  * Formats are taken from each param's format field.
  */
