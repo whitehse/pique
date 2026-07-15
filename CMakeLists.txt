@@ -28,6 +28,10 @@ add_executable(pqwire_test tests/test_pqwire.c)
 target_link_libraries(pqwire_test PRIVATE pqwire)
 add_test(NAME pqwire_dialectic COMMAND pqwire_test)
 
+add_executable(pqwire_pipeline_recover tests/test_pipeline_recover.c)
+target_link_libraries(pqwire_pipeline_recover PRIVATE pqwire)
+add_test(NAME pipeline_recover COMMAND pqwire_pipeline_recover)
+
 # Placeholder for examples and more tests as development progresses
 option(BUILD_EXAMPLES "Build example programs" OFF)
 if(BUILD_EXAMPLES)

@@ -162,6 +162,61 @@ typedef struct {
 /** Fill a prepared_stmt from a Parse event. Returns 0 on success. */
 int pqwire_prepared_from_parse(const pq_parse_t *parse, pqwire_prepared_stmt_t *out);
 
+/* ── Mid-pipeline recovery (ErrorResponse → ReadyForQuery) ───────────── */
+
+/**
+ * Peek a complete PostgreSQL message (type + int32 length + body).
+ * @return 0 on success, -1 if buffer is incomplete or malformed.
+ */
+int pqwire_msg_peek(const uint8_t *buf, size_t len, char *type_out, size_t *total_out);
+
+/**
+ * Status while draining a backend pipeline until ReadyForQuery.
+ * Proxies use this to know whether the pipeline failed and when it is clean.
+ */
+typedef struct {
+    int        saw_error;     /* ErrorResponse ('E') observed */
+    int        saw_rfq;       /* ReadyForQuery ('Z') observed */
+    int        complete;      /* same as saw_rfq (pipeline finished) */
+    int        n_msgs;        /* messages observed */
+    pq_error_t last_error;    /* last ErrorResponse fields (if saw_error) */
+} pqwire_pipeline_status_t;
+
+void pqwire_pipeline_status_init(pqwire_pipeline_status_t *st);
+
+/**
+ * Observe one complete backend message and update recovery status.
+ * Does not allocate. Parses ErrorResponse fields into st->last_error.
+ * @return 1 if ReadyForQuery was this message, 0 otherwise, -1 on bad frame.
+ */
+int pqwire_pipeline_observe_msg(pqwire_pipeline_status_t *st,
+                                const uint8_t *msg, size_t len);
+
+/**
+ * Feed a complete backend message into a CLIENT-role context, drain events,
+ * and update pipeline status. On ReadyForQuery, marks the context READY so
+ * the next pipeline can start without a full pqwire_reset (which would drop
+ * authentication state).
+ *
+ * @return 0 on success, -1 on hard error.
+ */
+int pqwire_pipeline_feed_backend_msg(pqwire_ctx_t *client_role,
+                                     pqwire_pipeline_status_t *st,
+                                     const uint8_t *msg, size_t len);
+
+/**
+ * Mark protocol phase READY without clearing auth / output buffers.
+ * Used after ReadyForQuery mid-session so pooled backends stay usable.
+ */
+void pqwire_note_ready(pqwire_ctx_t *ctx);
+
+/**
+ * Whether a backend message type should be filtered from the frontend
+ * during an identity-proxy pipeline (ParameterStatus, Notice, BackendKey,
+ * and optionally Parse/Bind complete when the frontend already got locals).
+ */
+int pqwire_pipeline_filter_backend_type(char type, int skip_parse_bind_complete);
+
 #ifdef __cplusplus
 }
 #endif

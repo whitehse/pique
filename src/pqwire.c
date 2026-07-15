@@ -1350,6 +1350,145 @@ int pqwire_send_no_data(pqwire_ctx_t *ctx)
     return emit_msg(ctx, 'n', NULL, 0);
 }
 
+/* ── Mid-pipeline recovery ───────────────────────────────────────────── */
+
+int pqwire_msg_peek(const uint8_t *buf, size_t len, char *type_out, size_t *total_out)
+{
+    uint32_t mlen;
+    size_t total;
+    if (!buf || len < 5 || !type_out || !total_out) {
+        return -1;
+    }
+    mlen = ((uint32_t)buf[1] << 24) | ((uint32_t)buf[2] << 16) |
+           ((uint32_t)buf[3] << 8) | (uint32_t)buf[4];
+    if (mlen < 4) {
+        return -1;
+    }
+    total = 1u + (size_t)mlen;
+    if (total > len) {
+        return -1; /* incomplete */
+    }
+    *type_out = (char)buf[0];
+    *total_out = total;
+    return 0;
+}
+
+void pqwire_pipeline_status_init(pqwire_pipeline_status_t *st)
+{
+    if (!st) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+static void parse_error_fields(const uint8_t *body, size_t body_len, pq_error_t *err)
+{
+    size_t off = 0;
+    if (!body || !err) {
+        return;
+    }
+    memset(err, 0, sizeof(*err));
+    while (off < body_len && body[off] != 0) {
+        char field = (char)body[off++];
+        size_t c = 0;
+        const char *val = read_cstr(body + off, body_len - off, &c);
+        if (!val) {
+            break;
+        }
+        off += c;
+        switch (field) {
+        case 'S':
+            copy_cstr(err->severity, sizeof(err->severity), val);
+            break;
+        case 'C':
+            copy_cstr(err->code, sizeof(err->code), val);
+            break;
+        case 'M':
+            copy_cstr(err->message, sizeof(err->message), val);
+            break;
+        case 'D':
+            copy_cstr(err->detail, sizeof(err->detail), val);
+            break;
+        case 'H':
+            copy_cstr(err->hint, sizeof(err->hint), val);
+            break;
+        case 'P':
+            err->position = atoi(val);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int pqwire_pipeline_observe_msg(pqwire_pipeline_status_t *st,
+                                const uint8_t *msg, size_t len)
+{
+    char type;
+    size_t total;
+    if (!st || !msg) {
+        return -1;
+    }
+    if (pqwire_msg_peek(msg, len, &type, &total) != 0 || total != len) {
+        return -1;
+    }
+    st->n_msgs++;
+    if (type == 'E' && total >= 5) {
+        st->saw_error = 1;
+        parse_error_fields(msg + 5, total - 5, &st->last_error);
+    } else if (type == 'Z') {
+        st->saw_rfq = 1;
+        st->complete = 1;
+        return 1;
+    }
+    return 0;
+}
+
+void pqwire_note_ready(pqwire_ctx_t *ctx)
+{
+    if (!ctx || ctx->magic != PQWIRE_MAGIC) {
+        return;
+    }
+    ctx->proto_state = PROTO_STATE_READY;
+}
+
+int pqwire_pipeline_feed_backend_msg(pqwire_ctx_t *client_role,
+                                     pqwire_pipeline_status_t *st,
+                                     const uint8_t *msg, size_t len)
+{
+    protocol_event_t ev;
+    int rfq;
+
+    if (!client_role || client_role->magic != PQWIRE_MAGIC || !st || !msg || len == 0) {
+        return -1;
+    }
+    rfq = pqwire_pipeline_observe_msg(st, msg, len);
+    if (rfq < 0) {
+        return -1;
+    }
+    (void)pqwire_feed_input(client_role, msg, len);
+    while (pqwire_next_event(client_role, &ev) == 1) {
+        /* Events already reflected in st via observe; drain for cleanliness. */
+        (void)ev;
+    }
+    if (rfq == 1) {
+        pqwire_note_ready(client_role);
+    }
+    return 0;
+}
+
+int pqwire_pipeline_filter_backend_type(char type, int skip_parse_bind_complete)
+{
+    if (skip_parse_bind_complete && (type == '1' || type == '2')) {
+        return 1;
+    }
+    /* ParameterStatus, NoticeResponse, BackendKeyData */
+    if (type == 'S' || type == 'N' || type == 'K') {
+        return 1;
+    }
+    return 0;
+}
+
 /* ── param helpers ───────────────────────────────────────────────────── */
 
 void pqwire_param_clear(pqwire_param_t *p)

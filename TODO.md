@@ -12,7 +12,7 @@
 - [ ] Zero-copy Bind rewrite without full re-serialize (slice-based output)
 - [ ] COPY protocol full duplex for bulk paths
 - [ ] Dialectic test: Parse intercept → ParseComplete local → Bind inject → unnamed pipeline
-- [ ] ErrorResponse mid-pipeline recovery helpers (discard until ReadyForQuery)
+- [x] ErrorResponse mid-pipeline recovery helpers (`pqwire_pipeline_status_t`, observe/feed, note_ready)
 - [ ] Document dual-context proxy pattern (frontend SERVER + backend CLIENT) in ARCHITECTURE.md
 
 ## Core robustness
