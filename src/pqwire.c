@@ -61,6 +61,14 @@ struct pqwire_ctx {
     pq_column_desc_t col_scratch[PQWIRE_MAX_ROW_COLUMNS];
     char col_name_scratch[PQWIRE_MAX_ROW_COLUMNS][64];
 
+    /*
+     * DataRow column bytes must outlive feed_input's memmove of the
+     * framing buffer. Arena is reset when the event queue drains empty.
+     */
+#define PQWIRE_ROW_ARENA 65536
+    uint8_t row_arena[PQWIRE_ROW_ARENA];
+    size_t  row_arena_used;
+
     char password[256];
     int use_scram;
     auth_state_t auth_state;
@@ -91,6 +99,10 @@ static int dequeue_event(pqwire_ctx_t *ctx, protocol_event_t *out)
     *out = ctx->events[ctx->event_head];
     ctx->event_head = (ctx->event_head + 1) % ctx->event_queue_size;
     ctx->event_count--;
+    if (ctx->event_count == 0) {
+        /* Safe to reuse DataRow arena once no queued events hold pointers. */
+        ctx->row_arena_used = 0;
+    }
     return 1;
 }
 
@@ -636,12 +648,23 @@ static void parse_data_row(pqwire_ctx_t *ctx, const uint8_t *body, size_t body_l
             ev.payload.data_row.data[i] = NULL;
             ev.payload.data_row.len[i] = 0;
         } else {
-            if (off + (size_t)plen > body_len) {
+            size_t need = (size_t)plen;
+            if (off + need > body_len) {
                 break;
             }
-            ev.payload.data_row.data[i] = body + off;
-            ev.payload.data_row.len[i] = (size_t)plen;
-            off += (size_t)plen;
+            /* Copy out of framing buffer before memmove in feed_input. */
+            if (ctx->row_arena_used + need > PQWIRE_ROW_ARENA) {
+                /* Drop column if arena exhausted (oversized row). */
+                ev.payload.data_row.data[i] = NULL;
+                ev.payload.data_row.len[i] = 0;
+            } else {
+                uint8_t *dst = ctx->row_arena + ctx->row_arena_used;
+                memcpy(dst, body + off, need);
+                ctx->row_arena_used += need;
+                ev.payload.data_row.data[i] = dst;
+                ev.payload.data_row.len[i] = need;
+            }
+            off += need;
         }
         ev.payload.data_row.format[i] = 0;
         ev.payload.data_row.oid[i] = 0;
@@ -665,6 +688,53 @@ static void parse_command_complete(pqwire_ctx_t *ctx, const uint8_t *body, size_
     ev.payload.command_complete.tag = ctx->tag_scratch;
     enqueue_event(ctx, &ev);
     ctx->proto_state = PROTO_STATE_READY;
+}
+
+/* NotificationResponse ('A'): int32 pid | channel\0 | payload\0 */
+static void parse_notification_response(pqwire_ctx_t *ctx, const uint8_t *body,
+                                        size_t body_len)
+{
+    protocol_event_t ev;
+    size_t off = 0;
+    const char *channel;
+    const char *payload;
+    size_t c = 0;
+    size_t plen;
+
+    (void)ctx;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PQ_EVENT_NOTIFICATION;
+    if (body_len < 4) {
+        return;
+    }
+    ev.payload.notification.pid = (int32_t)rd32_be(body);
+    off = 4;
+    channel = read_cstr(body + off, body_len - off, &c);
+    if (!channel) {
+        return;
+    }
+    off += c;
+    copy_cstr(ev.payload.notification.channel,
+              sizeof(ev.payload.notification.channel), channel);
+    payload = read_cstr(body + off, body_len - off, &c);
+    if (!payload) {
+        payload = "";
+        c = 1;
+    }
+    plen = c > 0 ? c - 1 : 0; /* exclude NUL counted by read_cstr if present */
+    /* read_cstr returns pointer into body and advances past NUL; length of
+     * string is strlen. Prefer strlen for safety. */
+    plen = 0;
+    while (payload[plen] != '\0' && plen < PQWIRE_NOTIFY_PAYLOAD_MAX) {
+        plen++;
+    }
+    if (plen > PQWIRE_NOTIFY_PAYLOAD_MAX) {
+        plen = PQWIRE_NOTIFY_PAYLOAD_MAX;
+    }
+    memcpy(ev.payload.notification.payload, payload, plen);
+    ev.payload.notification.payload[plen] = '\0';
+    ev.payload.notification.payload_len = plen;
+    enqueue_event(ctx, &ev);
 }
 
 /* Message dispatch is role-aware. */
@@ -747,6 +817,12 @@ static void handle_message(pqwire_ctx_t *ctx, char type, const uint8_t *body, si
     case 'N':
         ev.type = PQ_EVENT_NOTICE_RESPONSE;
         enqueue_event(ctx, &ev);
+        break;
+    case 'A':
+        parse_notification_response(ctx, body, body_len);
+        break;
+    case 'K':
+        /* BackendKeyData — ignore for client LISTEN path */
         break;
     default:
         break;

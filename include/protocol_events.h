@@ -80,11 +80,14 @@ typedef struct {
     int  position;          /* 'P' field */
 } pq_error_t;
 
-/* NotificationResponse payload */
+/* NotificationResponse payload (PG NOTIFY max 8000 bytes) */
+#define PQWIRE_NOTIFY_PAYLOAD_MAX 8000
+
 typedef struct {
     int32_t pid;
     char    channel[64];
-    char    payload[256];
+    char    payload[PQWIRE_NOTIFY_PAYLOAD_MAX + 1]; /* NUL-terminated */
+    size_t  payload_len;
 } pq_notification_t;
 
 /* Limits for extended-query event payloads (caller may retain copies) */
